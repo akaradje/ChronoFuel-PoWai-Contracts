@@ -1,0 +1,27 @@
+// tsconfig.json
+{
+  "compilerOptions": {
+    "target": "es2020", // หรือ "es2021", "es2022"
+    "module": "commonjs",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true, // หากใช้ Hardhat-Typescript starter
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": {
+      "@openzeppelin/contracts/*": ["node_modules/@openzeppelin/contracts/*"]
+    }
+  },
+  "include": [
+    "./scripts",
+    "./test",
+    "./typechain-types" // <<<--- ต้องมีบรรทัดนี้
+  ],
+  "files": [
+    // เพิ่มบรรทัดนี้ถ้าคุณใช้ Hardhat-Typescript template
+    "./hardhat.config.ts"
+  ]
+}

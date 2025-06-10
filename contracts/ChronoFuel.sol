@@ -1,0 +1,74 @@
+// contracts/ChronoFuel.sol
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+// import "@openzeppelin/contracts/utils/math/SafeMath.sol"; // ลบการ import นี้ออก
+
+contract ChronoFuel is ERC20, Ownable {
+    uint256 public constant INITIAL_SUPPLY = 21_000_000 * (10 ** 18);
+    uint256 public totalGlobalBurned;
+    uint256 public totalMinedTokens;
+    mapping(address => uint256) public userBurnedAmounts;
+    address public powaiCoreContract;
+
+    event TokensBurned(address indexed burner, uint256 amount);
+    event TokensMinted(address indexed minter, uint256 amount);
+    event PoWaiCoreContractSet(address indexed _powaiCoreContract);
+
+    constructor() ERC20("ChronoFuel", "CFL") Ownable(msg.sender) {
+        _mint(msg.sender, INITIAL_SUPPLY);
+        totalMinedTokens = INITIAL_SUPPLY;
+    }
+
+    function setPoWaiCoreContract(address _powaiCoreContract) public onlyOwner {
+        require(_powaiCoreContract != address(0), "ChronoFuel: Zero address not allowed for PoWaiCore");
+        require(powaiCoreContract == address(0) || powaiCoreContract == _powaiCoreContract, "ChronoFuel: PoWaiCore address already set or invalid update");
+        powaiCoreContract = _powaiCoreContract;
+        emit PoWaiCoreContractSet(_powaiCoreContract);
+    }
+
+    function _mintTokens(address to, uint256 amount) external {
+        require(msg.sender == powaiCoreContract, "ChronoFuel: Only PoWaiCore can mint");
+        require(amount > 0, "ChronoFuel: Cannot mint zero tokens");
+        _mint(to, amount);
+        totalMinedTokens = totalMinedTokens + amount;
+        emit TokensMinted(to, amount);
+    }
+
+    function burn(uint256 amount) public {
+        _burn(msg.sender, amount);
+        totalGlobalBurned = totalGlobalBurned + amount;
+        userBurnedAmounts[msg.sender] = userBurnedAmounts[msg.sender] + amount;
+        emit TokensBurned(msg.sender, amount);
+    }
+
+    // <<<--- เพิ่มฟังก์ชัน burnFrom นี้เข้ามา
+    /**
+     * @dev Burns `amount` tokens from `from`, deducting from the caller's allowance.
+     * This function is intended to be called by authorized contracts (like PoWaiCore).
+     * @param from The address whose tokens will be burned.
+     * @param amount The amount of tokens to burn.
+     */
+    function burnFrom(address from, uint256 amount) public {
+        // _spendAllowance checks allowance and deducts it. msg.sender is PoWaiCore.
+        _spendAllowance(from, msg.sender, amount);
+        _burn(from, amount); // Burn from the 'from' address
+        totalGlobalBurned = totalGlobalBurned + amount; // Update global burned
+        userBurnedAmounts[from] = userBurnedAmounts[from] + amount; // Update user's specific burned amount
+        emit TokensBurned(from, amount);
+    }
+
+    function getTotalGlobalBurned() public view returns (uint256) {
+        return totalGlobalBurned;
+    }
+
+    function getTotalMinedTokens() public view returns (uint256) {
+        return totalMinedTokens;
+    }
+
+    function getUserBurnedAmount(address user) public view returns (uint256) {
+        return userBurnedAmounts[user];
+    }
+}
