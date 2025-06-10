@@ -4,22 +4,26 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-// import "@openzeppelin/contracts/utils/math/SafeMath.sol"; // ลบการ import นี้ออก
 
 contract ChronoFuel is ERC20, Ownable {
-    uint256 public constant INITIAL_SUPPLY = 21_000_000 * (10 ** 18);
-    uint256 public totalGlobalBurned;
-    uint256 public totalMinedTokens;
+    uint256 public constant INITIAL_SUPPLY = 21_000_000 * (10 ** 18); // 21M tokens with 18 decimals
+    uint256 public totalGlobalBurned; // Total CFL burned across the entire system
+    uint256 public totalMinedTokens;  // Total CFL minted across the entire system
+
+    // Mapping to store user-specific burned amounts for Burn Booster Engine
     mapping(address => uint256) public userBurnedAmounts;
+
+    // The address of the PoWaiCore contract, authorized to mint tokens
     address public powaiCoreContract;
 
+    // --- Events ---
     event TokensBurned(address indexed burner, uint256 amount);
     event TokensMinted(address indexed minter, uint256 amount);
     event PoWaiCoreContractSet(address indexed _powaiCoreContract);
 
     constructor() ERC20("ChronoFuel", "CFL") Ownable(msg.sender) {
-        _mint(msg.sender, INITIAL_SUPPLY);
-        totalMinedTokens = INITIAL_SUPPLY;
+        _mint(msg.sender, INITIAL_SUPPLY); // Mint initial supply to the deployer
+        totalMinedTokens = INITIAL_SUPPLY; // <<<--- FIX: อัปเดต totalMinedTokens ใน constructor
     }
 
     function setPoWaiCoreContract(address _powaiCoreContract) public onlyOwner {
@@ -29,7 +33,7 @@ contract ChronoFuel is ERC20, Ownable {
         emit PoWaiCoreContractSet(_powaiCoreContract);
     }
 
-    function _mintTokens(address to, uint256 amount) external {
+    function _mintTokens(address to, uint256 amount) external { // Changed to external for PoWaiCore to call
         require(msg.sender == powaiCoreContract, "ChronoFuel: Only PoWaiCore can mint");
         require(amount > 0, "ChronoFuel: Cannot mint zero tokens");
         _mint(to, amount);
@@ -44,7 +48,6 @@ contract ChronoFuel is ERC20, Ownable {
         emit TokensBurned(msg.sender, amount);
     }
 
-    // <<<--- เพิ่มฟังก์ชัน burnFrom นี้เข้ามา
     /**
      * @dev Burns `amount` tokens from `from`, deducting from the caller's allowance.
      * This function is intended to be called by authorized contracts (like PoWaiCore).
@@ -52,10 +55,9 @@ contract ChronoFuel is ERC20, Ownable {
      * @param amount The amount of tokens to burn.
      */
     function burnFrom(address from, uint256 amount) public {
-        // _spendAllowance checks allowance and deducts it. msg.sender is PoWaiCore.
-        _spendAllowance(from, msg.sender, amount);
-        _burn(from, amount); // Burn from the 'from' address
-        totalGlobalBurned = totalGlobalBurned + amount; // Update global burned
+        _spendAllowance(from, msg.sender, amount); // msg.sender is PoWaiCore
+        _burn(from, amount); // Burn from 'from'
+        totalGlobalBurned = totalGlobalBurned + amount;
         userBurnedAmounts[from] = userBurnedAmounts[from] + amount; // Update user's specific burned amount
         emit TokensBurned(from, amount);
     }

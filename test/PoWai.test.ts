@@ -316,16 +316,10 @@ describe("ChronoFuel PoWai System", function () {
       await chronoFuel.connect(user2).approve(await poWaiCore.getAddress(), toWei(BURN_AMOUNT_CFL)); // Approve for full burn
 
       await expect(async () => poWaiCore.connect(user2).boostBurn(toWei(BURN_AMOUNT_CFL))) 
-        .to.be.revertedWithCustomError(chronoFuel, "ERC20InsufficientBalance"); 
+        .to.be.revertedWithCustomError(chronoFuel, "ERC20InsufficientBalance"); // Use custom error for ERC20
     });
 
-    // <<<--- CRITICAL FIX: ลบ Test Case นี้ออก เพราะมันทดสอบสิ่งที่ไม่ควร revert (certificateDetails เป็น public)
-    // it("Should reject querying NFT not owned by user", async () => {
-    //   await poWaiCore.connect(user1).boostBurn(toWei(BURN_AMOUNT_CFL));
-    //   const tokenId = await burnCertificateNFT.tokenOfOwnerByIndex(user1.address, 0); 
-    //   await expect(burnCertificateNFT.connect(user2).certificateDetails(tokenId))
-    //     .to.be.revertedWith("Ownable: caller is not the owner"); 
-    // });
+    // Removed: "Should reject querying NFT not owned by user" test as it tests a non-existent revert.
 
     it("Should allow multiple boostBurn to mint multiple NFTs", async () => {
       // User1 has 1000 CFL from beforeEach. Enough for 10+20+30 = 60
