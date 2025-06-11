@@ -1,5 +1,6 @@
 import { ethers } from "hardhat";
-import { ChronoFuel, PoWaiCore, BurnCertificateNFT, AdaptiveHalving } from "../typechain-types"; // Adjust path if necessary
+// <<<--- ลบ BurnCertificateNFT ออก
+import { ChronoFuel, PoWaiCore, AdaptiveHalving } from "../typechain-types"; // Adjust path if necessary
 
 async function main() {
   console.log("🚀 Deploying ChronoFuel PoWai System Contracts...");
@@ -12,13 +13,14 @@ async function main() {
   const chronoFuelAddress = await chronoFuel.getAddress();
   console.log(`✅ ChronoFuel (CFL) deployed to: ${chronoFuelAddress}`);
 
+  // <<<--- ลบการ Deploy BurnCertificateNFT ออก
   // --- 2. Deploy BurnCertificateNFT ---
-  console.log("\nDeploying BurnCertificateNFT...");
-  const BurnCertificateNFTFactory = await ethers.getContractFactory("BurnCertificateNFT");
-  const burnCertificateNFT: BurnCertificateNFT = await BurnCertificateNFTFactory.deploy();
-  await burnCertificateNFT.waitForDeployment();
-  const burnCertificateNFTAddress = await burnCertificateNFT.getAddress();
-  console.log(`✅ BurnCertificateNFT deployed to: ${burnCertificateNFTAddress}`);
+  // console.log("\nDeploying BurnCertificateNFT...");
+  // const BurnCertificateNFTFactory = await ethers.getContractFactory("BurnCertificateNFT");
+  // const burnCertificateNFT: BurnCertificateNFT = await BurnCertificateNFTFactory.deploy();
+  // await burnCertificateNFT.waitForDeployment();
+  // const burnCertificateNFTAddress = await burnCertificateNFT.getAddress();
+  // console.log(`✅ BurnCertificateNFT deployed to: ${burnCertificateNFTAddress}`);
 
   // --- 3. Deploy AdaptiveHalving ---
   // Constructor requires ChronoFuel token address
@@ -46,11 +48,12 @@ async function main() {
   await tx.wait();
   console.log(`   ChronoFuel.setPoWaiCoreContract(${poWaiCoreAddress}) called. Tx: ${tx.hash}`);
 
+  // <<<--- ลบการเชื่อมโยง BurnCertificateNFT ออก
   // --- Link BurnCertificateNFT to PoWaiCore ---
-  console.log(`Configuring BurnCertificateNFT to recognize PoWaiCore...`);
-  tx = await burnCertificateNFT.setPoWaiCoreContract(poWaiCoreAddress);
-  await tx.wait();
-  console.log(`   BurnCertificateNFT.setPoWaiCoreContract(${poWaiCoreAddress}) called. Tx: ${tx.hash}`);
+  // console.log(`Configuring BurnCertificateNFT to recognize PoWaiCore...`);
+  // tx = await burnCertificateNFT.setPoWaiCoreContract(poWaiCoreAddress);
+  // await tx.wait();
+  // console.log(`   BurnCertificateNFT.setPoWaiCoreContract(${poWaiCoreAddress}) called. Tx: ${tx.hash}`);
 
   // --- Link AdaptiveHalving to PoWaiCore ---
   console.log(`Configuring AdaptiveHalving to recognize PoWaiCore...`);
@@ -58,11 +61,12 @@ async function main() {
   await tx.wait();
   console.log(`   AdaptiveHalving.setPoWaiCoreContract(${poWaiCoreAddress}) called. Tx: ${tx.hash}`);
 
+  // <<<--- ลบการเชื่อมโยง PoWaiCore ไปยัง BurnCertificateNFT ออก
   // --- Link PoWaiCore to BurnCertificateNFT ---
-  console.log(`Configuring PoWaiCore to recognize BurnCertificateNFT...`);
-  tx = await poWaiCore.setBurnCertificateNFT(burnCertificateNFTAddress);
-  await tx.wait();
-  console.log(`   PoWaiCore.setBurnCertificateNFT(${burnCertificateNFTAddress}) called. Tx: ${tx.hash}`);
+  // console.log(`Configuring PoWaiCore to recognize BurnCertificateNFT...`);
+  // tx = await poWaiCore.setBurnCertificateNFT(burnCertificateNFTAddress);
+  // await tx.wait();
+  // console.log(`   PoWaiCore.setBurnCertificateNFT(${burnCertificateNFTAddress}) called. Tx: ${tx.hash}`);
 
   // --- Link PoWaiCore to AdaptiveHalving ---
   console.log(`Configuring PoWaiCore to recognize AdaptiveHalving...`);
@@ -74,7 +78,7 @@ async function main() {
   console.log("\nContract Addresses:");
   console.log(`ChronoFuel (CFL):       ${chronoFuelAddress}`);
   console.log(`PoWaiCore:              ${poWaiCoreAddress}`);
-  console.log(`BurnCertificateNFT:     ${burnCertificateNFTAddress}`);
+  // console.log(`BurnCertificateNFT:     ${burnCertificateNFTAddress}`); // ลบบรรทัดนี้
   console.log(`AdaptiveHalving:        ${adaptiveHalvingAddress}`);
 
   console.log("\n--- Important Manual Step Required ---");

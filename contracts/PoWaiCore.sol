@@ -4,8 +4,9 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "hardhat/console.sol"; // <<<--- เพิ่มบรรทัดนี้สำหรับ console.log ในสัญญา
+// <<<--- แก้ไขตรงนี้: เปลี่ยน "openzeppelin-contracts/" ออกไป
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol"; 
+import "hardhat/console.sol"; 
 
 // Interface for the ChronoFuel token to access its specific functions
 interface IChronoFuel is IERC20 {
@@ -16,10 +17,7 @@ interface IChronoFuel is IERC20 {
     function totalSupply() external view returns (uint256);
 }
 
-interface IBurnCertificateNFT {
-    function mintBurnCertificate(address to, uint256 amountBurned, uint256 mintPowerBeforeBurn, uint256 daoPoints, uint256 airdropRights) external returns (uint256 tokenId);
-}
-
+// Interface for Adaptive Halving contract
 interface IAdaptiveHalving {
     function grantAntiHalvingShield(address user, address powaiCoreAddress) external;
     function reduceHalvingRate(uint256 percentageReduction, address powaiCoreAddress) external;
@@ -34,12 +32,21 @@ interface IAdaptiveHalving {
 contract PoWaiCore is Ownable, ReentrancyGuard {
     // --- External Contract Instances ---
     IChronoFuel public chronoFuelToken;
-    IBurnCertificateNFT public burnCertificateNFT;
     IAdaptiveHalving public adaptiveHalving;
+
+    // Structure and mapping for Burn Records (replaces NFT for burn certificate)
+    struct BurnRecord {
+        uint256 amountBurned;
+        uint256 mintPowerBeforeBurn;
+        uint256 daoPoints;
+        uint256 airdropRights;
+        uint256 timestamp;
+    }
+    mapping(address => BurnRecord[]) public userBurnRecords; // Stores all burn records for a user
 
     // --- Constants ---
     uint256 public constant AHBM_DECIMALS = 10**18;
-    uint256 public constant PRECISION_FACTOR = 10**10; // 10^10 สำหรับคำนวณส่วนที่มีทศนิยม 10 หลัก
+    uint256 public constant PRECISION_FACTOR = 10**10; // 10^10 for 10 decimal precision
 
     uint256 public constant BASE_TIME_REWARD_PER_HOUR_AHBM = 1 * AHBM_DECIMALS; // 1 CFL/ชม. (scaled)
     uint256 public constant MAX_WAIT_HOURS = 24;
@@ -56,7 +63,7 @@ contract PoWaiCore is Ownable, ReentrancyGuard {
     uint256 public constant EPIC_PROB = 7;
     uint256 public constant LEGENDARY_PROB = 1;
 
-    // Multipliers จะเป็นค่า raw ที่คูณด้วย 10 เพื่อจัดการทศนิยม 1 ตำแหน่ง
+    // Multipliers are raw values scaled by 10 for 1 decimal precision
     uint256 public constant COMMON_MULTIPLIER_SCALED = 10;   // 1.0x (scaled by 10)
     uint256 public constant RARE_MULTIPLIER_SCALED = 18;    // 1.8x (scaled by 10)
     uint256 public constant EPIC_MULTIPLIER_SCALED = 35;    // 3.5x (scaled by 10)
@@ -78,16 +85,15 @@ contract PoWaiCore is Ownable, ReentrancyGuard {
     uint256 public activeUsersCount;
     uint256 public constant ACTIVITY_WINDOW = 24 hours;
 
-    // For randomness nonce (per user, increments with each claim)
+    // For randomness nonce
     mapping(address => uint256) private _nonce;
 
     // --- Events ---
     event Staked(address indexed user, uint256 amount);
     event Unstaked(address indexed user, uint256 amount);
-    event BurnedForBoost(address indexed burner, uint256 amountBurned, uint256 newBurnCertificateNFTId);
+    event BurnedForBoost(address indexed burner, uint256 amountBurned); // No newNFTId now
     event RewardClaimed(address indexed user, uint256 timeWaitedSeconds, uint256 stakedAmount, uint256 baseMintPower, uint256 finalReward, uint256 rewardTierId, uint256 cooldownUsed);
     event ChronoFuelTokenSet(address indexed tokenAddress);
-    event BurnCertificateNFTSet(address indexed nftAddress);
     event AdaptiveHalvingSet(address indexed halvingAddress);
 
     /**
@@ -95,8 +101,7 @@ contract PoWaiCore is Ownable, ReentrancyGuard {
      * @param _chronoFuelTokenAddress The address of the ChronoFuel (CFL) token contract.
      */
     constructor(address _chronoFuelTokenAddress) Ownable(msg.sender) {
-        console.log("Contract Deploy: PoWaiCore constructor"); // DEBUG
-        console.logAddress(_chronoFuelTokenAddress); // DEBUG
+        console.log("Contract Deploy: PoWaiCore constructor"); console.logAddress(_chronoFuelTokenAddress); 
         require(_chronoFuelTokenAddress != address(0), "PoWaiCore: ChronoFuel token address cannot be zero");
         chronoFuelToken = IChronoFuel(_chronoFuelTokenAddress);
         emit ChronoFuelTokenSet(_chronoFuelTokenAddress);
@@ -108,8 +113,7 @@ contract PoWaiCore is Ownable, ReentrancyGuard {
      * @param _tokenAddress The address of the ChronoFuel token contract.
      */
     function setChronoFuelToken(address _tokenAddress) public onlyOwner {
-        console.log("setChronoFuelToken:"); // DEBUG
-        console.logAddress(_tokenAddress); // DEBUG
+        console.log("setChronoFuelToken:"); console.logAddress(_tokenAddress); 
         require(_tokenAddress != address(0), "PoWaiCore: Zero address not allowed");
         require(address(chronoFuelToken) == address(0) || address(chronoFuelToken) == _tokenAddress, "PoWaiCore: ChronoFuel token already set or invalid update");
         chronoFuelToken = IChronoFuel(_tokenAddress);
@@ -117,25 +121,11 @@ contract PoWaiCore is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Sets the address of the Burn Certificate NFT contract.
-     * @param _nftAddress The address of the Burn Certificate NFT contract.
-     */
-    function setBurnCertificateNFT(address _nftAddress) public onlyOwner {
-        console.log("setBurnCertificateNFT:"); // DEBUG
-        console.logAddress(_nftAddress); // DEBUG
-        require(_nftAddress != address(0), "PoWaiCore: Zero address not allowed for NFT contract");
-        require(address(burnCertificateNFT) == address(0) || address(burnCertificateNFT) == _nftAddress, "PoWaiCore: Burn Certificate NFT already set or invalid update");
-        burnCertificateNFT = IBurnCertificateNFT(_nftAddress);
-        emit BurnCertificateNFTSet(_nftAddress);
-    }
-
-    /**
      * @dev Sets the address of the Adaptive Halving contract.
      * @param _halvingAddress The address of the Adaptive Halving contract.
      */
     function setAdaptiveHalving(address _halvingAddress) public onlyOwner {
-        console.log("setAdaptiveHalving:"); // DEBUG
-        console.logAddress(_halvingAddress); // DEBUG
+        console.log("setAdaptiveHalving:"); console.logAddress(_halvingAddress); 
         require(_halvingAddress != address(0), "PoWaiCore: Zero address not allowed for Halving contract");
         require(address(adaptiveHalving) == address(0) || address(adaptiveHalving) == _halvingAddress, "PoWaiCore: Adaptive Halving already set or invalid update");
         adaptiveHalving = IAdaptiveHalving(_halvingAddress);
@@ -148,7 +138,7 @@ contract PoWaiCore is Ownable, ReentrancyGuard {
      * @param amount The amount of CFL to stake.
      */
     function stake(uint256 amount) public nonReentrant {
-        console.log("stake: amount"); console.logUint(amount); // DEBUG
+        console.log("stake: amount"); console.logUint(amount); 
         require(amount > 0, "PoWaiCore: Stake amount must be positive");
         require(chronoFuelToken.transferFrom(msg.sender, address(this), amount), "PoWaiCore: CFL transfer failed");
         userData[msg.sender].stakedAmount = userData[msg.sender].stakedAmount + amount;
@@ -161,7 +151,7 @@ contract PoWaiCore is Ownable, ReentrancyGuard {
      * @param amount The amount of CFL to unstake.
      */
     function unstake(uint256 amount) public nonReentrant {
-        console.log("unstake: amount"); console.logUint(amount); // DEBUG
+        console.log("unstake: amount"); console.logUint(amount); 
         require(amount > 0, "PoWaiCore: Unstake amount must be positive");
         require(userData[msg.sender].stakedAmount >= amount, "PoWaiCore: Insufficient staked amount");
         userData[msg.sender].stakedAmount = userData[msg.sender].stakedAmount - amount;
@@ -176,17 +166,16 @@ contract PoWaiCore is Ownable, ReentrancyGuard {
      */
     function claimReward() public nonReentrant {
         UserData storage user = userData[msg.sender];
-        console.log("claimReward called by:"); console.logAddress(msg.sender); // DEBUG
+        console.log("claimReward called by:"); console.logAddress(msg.sender); 
 
-        // <<<--- เพิ่ม require นี้
         require(user.stakedAmount > 0, "PoWaiCore: No active stake found"); 
 
         _updateActiveUsers(msg.sender);
         uint256 effectiveCooldown = getEffectiveCooldown();
-        console.log("Cooldown debug: current_ts"); console.logUint(block.timestamp); // DEBUG
-        console.log("Cooldown debug: last_claim_ts"); console.logUint(user.lastClaimTimestamp); // DEBUG
-        console.log("Cooldown debug: cooldown"); console.logUint(effectiveCooldown); // DEBUG
-        console.log("Cooldown debug: required_ts"); console.logUint(user.lastClaimTimestamp + effectiveCooldown); // DEBUG
+        console.log("Cooldown debug: current_ts"); console.logUint(block.timestamp); 
+        console.log("Cooldown debug: last_claim_ts"); console.logUint(user.lastClaimTimestamp); 
+        console.log("Cooldown debug: cooldown"); console.logUint(effectiveCooldown); 
+        console.log("Cooldown debug: required_ts"); console.logUint(user.lastClaimTimestamp + effectiveCooldown); 
 
         require(block.timestamp >= user.lastClaimTimestamp + effectiveCooldown, "PoWaiCore: Cooldown not yet passed");
 
@@ -200,51 +189,51 @@ contract PoWaiCore is Ownable, ReentrancyGuard {
         if (timeSinceLastClaim > 0 && timeReward == 0) { // Ensure minimum reward if time passed but calculation results in 0
             timeReward = 1; // Smallest possible non-zero unit (e.g., 1 Wei)
         }
-        console.log("Reward calc: timeSinceLastClaim:"); console.logUint(timeSinceLastClaim); // DEBUG
-        console.log("Reward calc: timeReward (scaled):"); console.logUint(timeReward); // DEBUG
+        console.log("Reward calc: timeSinceLastClaim:"); console.logUint(timeSinceLastClaim); 
+        console.log("Reward calc: timeReward (scaled):"); console.logUint(timeReward); 
 
 
         uint256 stakeBoostFactor = _calculateStakeBoost(user.stakedAmount);
         uint256 userBurned = chronoFuelToken.getUserBurnedAmount(msg.sender); // In AHBM_DECIMALS (10^18)
-        console.log("Reward calc: userBurned (10^18 scaled):"); console.logUint(userBurned); // DEBUG
+        console.log("Reward calc: userBurned (10^18 scaled):"); console.logUint(userBurned); 
 
         uint256 burnFactorComponent;
         if (userBurned > 0) {
             // Convert userBurned from AHBM_DECIMALS (10^18) to base units
             uint256 userBurnedBaseUnits = userBurned / AHBM_DECIMALS; 
-            console.log("Reward calc: userBurnedBaseUnits:", userBurnedBaseUnits); // DEBUG
+            console.log("Reward calc: userBurnedBaseUnits:", userBurnedBaseUnits); 
 
             // Calculate sqrt(userBurned_base_units) scaled by PRECISION_FACTOR
             // x = userBurnedBaseUnits * PRECISION_FACTOR^2 => sqrt(x) = sqrt(userBurnedBaseUnits) * PRECISION_FACTOR
             uint256 userBurnedScaledForSqrt = userBurnedBaseUnits * PRECISION_FACTOR * PRECISION_FACTOR;
-            console.log("Reward calc: userBurnedScaledForSqrt (input to sqrt):", userBurnedScaledForSqrt); // DEBUG
+            console.log("Reward calc: userBurnedScaledForSqrt (input to sqrt):"); console.logUint(userBurnedScaledForSqrt); 
 
             uint256 sqrtValScaled = _integerSqrt(userBurnedScaledForSqrt); // Result is sqrt(userBurned_base_units) * PRECISION_FACTOR
-            console.log("Reward calc: sqrtValScaled (output from sqrt):", sqrtValScaled); // DEBUG
+            console.log("Reward calc: sqrtValScaled (output from sqrt):"); console.logUint(sqrtValScaled); 
             
             // burnFactorComponent = (0.7 * sqrt(userBurned_base_units)) * PRECISION_FACTOR
             // This is the correct scaling for addition with PRECISION_FACTOR
             burnFactorComponent = (BURN_FACTOR_NUMERATOR * sqrtValScaled) / BURN_FACTOR_DENOMINATOR;
-            console.log("Reward calc: burnFactorComponent (final scaled):", burnFactorComponent); // DEBUG
+            console.log("Reward calc: burnFactorComponent (final scaled):"); console.logUint(burnFactorComponent); 
         } else {
             burnFactorComponent = 0;
         }
 
         uint256 totalBurnBoostScaled = PRECISION_FACTOR + burnFactorComponent;
-        console.log("Reward calc: totalBurnBoostScaled:", totalBurnBoostScaled); // DEBUG
+        console.log("Reward calc: totalBurnBoostScaled:", totalBurnBoostScaled); 
 
         uint256 baseMintPower = timeReward * stakeBoostFactor; // timeReward is 10^18 scaled
-        console.log("Reward calc: baseMintPower (time * stake, 10^18 scaled):", baseMintPower); // DEBUG
+        console.log("Reward calc: baseMintPower (time * stake, 10^18 scaled):", baseMintPower); 
 
         // effectiveMintPower = baseMintPower (10^18 scaled) * totalBurnBoostScaled (PRECISION_FACTOR scaled) / PRECISION_FACTOR
         // Result is in 10^18 scaled units
         uint256 effectiveMintPower = (baseMintPower * totalBurnBoostScaled) / PRECISION_FACTOR;
-        console.log("Reward calc: effectiveMintPower (base * burn, 10^18 scaled):", effectiveMintPower); // DEBUG
+        console.log("Reward calc: effectiveMintPower (base * burn, 10^18 scaled):", effectiveMintPower); 
 
         uint256 finalReward;
         uint256 rewardTierId;
         (finalReward, rewardTierId) = _applyRandomRewardTier(msg.sender, effectiveMintPower);
-        console.log("Reward calc: finalReward (after random tier):", finalReward, "tierId:", rewardTierId); // DEBUG
+        console.log("Reward calc: finalReward (after random tier):", finalReward, "tierId:", rewardTierId); 
 
         chronoFuelToken._mintTokens(msg.sender, finalReward);
         user.lastClaimTimestamp = block.timestamp;
@@ -252,20 +241,19 @@ contract PoWaiCore is Ownable, ReentrancyGuard {
         emit RewardClaimed(msg.sender, timeSinceLastClaim, user.stakedAmount, effectiveMintPower, finalReward, rewardTierId, effectiveCooldown);
     }
 
+    // <<<--- แก้ไข boostBurn เพื่อใช้ระบบบันทึก BurnRecord แทน NFT
     function boostBurn(uint256 amount) public nonReentrant {
-        console.log("boostBurn called by:", msg.sender, " with amount:", amount); // DEBUG
-        console.log("boostBurn: BurnCertNFT address in PoWaiCore:", address(burnCertificateNFT)); // DEBUG
+        console.log("boostBurn called by:", msg.sender, " with amount:", amount); 
         require(amount > 0, "PoWaiCore: Burn amount must be positive");
-        require(address(burnCertificateNFT) != address(0), "PoWaiCore: Burn Certificate NFT contract not set"); // <<<--- บรรทัดที่ 256 ที่ Error เกิด
 
         chronoFuelToken.burnFrom(msg.sender, amount); 
-        console.log("boostBurn: Amount burned (from user via burnFrom):", amount); // DEBUG
+        console.log("boostBurn: Amount burned (from user via burnFrom):"); console.logUint(amount); 
 
         uint256 currentTotalUserBurned = chronoFuelToken.getUserBurnedAmount(msg.sender);
-        console.log("boostBurn: currentTotalUserBurned (after burn):", currentTotalUserBurned); // DEBUG
+        console.log("boostBurn: currentTotalUserBurned (after burn):"); console.logUint(currentTotalUserBurned); 
 
-        uint256 userBurnedBeforeThisBurn = currentTotalUserBurned - amount; // Correct to get previous burned amount
-        console.log("boostBurn: userBurnedBeforeThisBurn:", userBurnedBeforeThisBurn); // DEBUG
+        uint256 userBurnedBeforeThisBurn = currentTotalUserBurned - amount; 
+        console.log("boostBurn: userBurnedBeforeThisBurn:", userBurnedBeforeThisBurn); 
 
 
         uint256 currentStakeBoost = _calculateStakeBoost(userData[msg.sender].stakedAmount);
@@ -285,19 +273,30 @@ contract PoWaiCore is Ownable, ReentrancyGuard {
         uint256 mintPowerBeforeBurn = (timeRewardForCertificate * currentStakeBoost * totalBurnBoostScaledBeforeBurn) / PRECISION_FACTOR;
 
         uint256 daoPoints = (amount / AHBM_DECIMALS) * 4;
-        uint256 airdropRights = amount / AHBM_DECIMALS;
+        uint256 airdropRights = (amount / AHBM_DECIMALS); 
 
-        uint256 newNFTId = burnCertificateNFT.mintBurnCertificate(
-            msg.sender,
-            amount, // This is uint256
-            mintPowerBeforeBurn,
-            daoPoints,
-            airdropRights
-        );
-        console.log("boostBurn: newNFTId:", newNFTId); // DEBUG
-
-        emit BurnedForBoost(msg.sender, amount, newNFTId);
+        // <<<--- บันทึก Burn Record ลงใน mapping โดยตรง แทนการ Mint NFT
+        userBurnRecords[msg.sender].push(BurnRecord({
+            amountBurned: amount,
+            mintPowerBeforeBurn: mintPowerBeforeBurn,
+            daoPoints: daoPoints,
+            airdropRights: airdropRights,
+            timestamp: block.timestamp
+        }));
+        
+        // ไม่ต้องมี newNFTId ใน Event แล้ว เพราะไม่ใช่ NFT
+        emit BurnedForBoost(msg.sender, amount); 
     }
+
+    // <<<--- เพิ่ม view function สำหรับดึง Burn Records
+    function getUserBurnRecordCount(address user) public view returns (uint256) {
+        return userBurnRecords[user].length;
+    }
+
+    function getUserBurnRecord(address user, uint256 index) public view returns (BurnRecord memory) {
+        return userBurnRecords[user][index];
+    }
+
 
     function _calculateStakeBoost(uint256 stakedAmount_in_AHBM_Decimals) internal pure returns (uint256) {
         if (stakedAmount_in_AHBM_Decimals == 0) {
